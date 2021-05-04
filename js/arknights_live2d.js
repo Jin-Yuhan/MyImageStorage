@@ -1,5 +1,6 @@
 (function () {
     var animationQueue = new Array(); // 播放队列
+    var context = new AudioContext();
     var audioCache = new Map(); // 音频缓存
     var isPlayingAudio = false;
     var lastClickTime = Date.now();
@@ -103,20 +104,36 @@
             src = src[randomRangeInt(src.length)];
         }
 
-        var audio;
-        if (audioCache.has(src)) {
-            audio = audioCache.get(src);
-        } else {
-            audio = new Audio(src);
-            if (cacheable) {
-                audioCache.set(src, audio);
-            }
-        }
-        audio.play();
         isPlayingAudio = true;
-        audio.addEventListener("ended", function () {
-            isPlayingAudio = false;
-        });
+
+        if (audioCache.has(src)) {
+            playSource(audioCache.get(src));
+        } else {
+            downloadBinary(src, function (data) {
+                context.decodeAudioData(data, function (buffer) {
+                    var source = context.createBufferSource();
+                    source.buffer = buffer;
+                    source.loop = false;
+                    source.connect(context.destination);
+                    playSource(source);
+
+                    if (cacheable) {
+                        audioCache.set(src, source);
+                    }
+                }, function (e) {
+                    console.error('Error decoding file', e);
+                });
+            }, function (status, responseText) {
+                console.error(`Couldn't load binary ${path}: status ${status}, ${responseText}.`);
+            });
+        }
+
+        function playSource(source) {
+            source.start(0); //立即播放
+            source.addEventListener("ended", function () {
+                isPlayingAudio = false;
+            });
+        }
     }
 
     function checkIsIdle() {
