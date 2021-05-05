@@ -1,9 +1,10 @@
 (function () {
-    var animationQueue = new Array(); // 播放队列
-    var context = new AudioContext();
-    var audioCache = new Map(); // 音频缓存
-    var isPlayingAudio = false;
-    var lastClickTime = Date.now();
+    let spineWidgetBaseId = "spine-widget-base";
+    let spineWidgetId = "spine-widget";
+    let config = arknights_live2d_config;
+    let animationQueue = new Array(); // 播放队列
+    let audioPlayer = document.getElementById("spine-audio");
+    let lastClickTime = Date.now();
 
     function downloadBinary(url, success, error) {
         var request = new XMLHttpRequest();
@@ -22,45 +23,25 @@
         request.send();
     }
 
-    function init() {
-        var spineWidgetBase = document.getElementById("spine-widget-base");
+    function initSpineWidgetElement() {
         var spineWidget = document.createElement("div");
-        spineWidget.id = "spine-widget";
-        spineWidget.setAttribute("style", arknights_live2d_config.widgetStyle);
-        spineWidgetBase.appendChild(spineWidget);
-
-        downloadBinary(arknights_live2d_config.skeleton, function (data) {
-            var skeletonBinary = new SkeletonBinary();
-            skeletonBinary.data = data;
-            skeletonBinary.initJson();
-
-            new spine.SpineWidget("spine-widget", {
-                animation: arknights_live2d_config.animations.start,
-                skin: arknights_live2d_config.skin,
-                atlas: arknights_live2d_config.atlas,
-                jsonContent: skeletonBinary.json,
-                backgroundColor: arknights_live2d_config.background,
-                loop: false, // 默认不循环，因为要先放开始动画
-                success: widgetLoadSuccess
-            });
-        }, function (status, responseText) {
-            console.error(`Couldn't load binary ${path}: status ${status}, ${responseText}.`);
-        });
+        spineWidget.id = spineWidgetId;
+        spineWidget.setAttribute("style", config.widgetStyle);
+        document.getElementById(spineWidgetBaseId).appendChild(spineWidget);
     }
 
     function widgetLoadSuccess(widget) {
+        playAudio(config.audios.start);
+
         widget.state.addListener({
             "complete": function (entry) {
-                if (entry.animation.name == arknights_live2d_config.animations.start) {
-                    playAudio(arknights_live2d_config.audios.start, false); // 只放一次，所以不缓存
-                }
                 if (animationQueue.length > 0) {
                     setAnimation(widget, animationQueue.shift(), false);
                 } else {
                     checkIsIdle();
 
                     if (!entry.loop) {
-                        setAnimation(widget, arknights_live2d_config.animations.idle, true);
+                        setAnimation(widget, config.animations.idle, true);
                     }
                 }
             }
@@ -71,8 +52,8 @@
                 console.warn("点击过于频繁！");
             } else {
                 lastClickTime = Date.now();
-                setAnimations(widget, arknights_live2d_config.animations.click);
-                playAudio(arknights_live2d_config.audios.click, true);
+                setAnimations(widget, config.animations.click);
+                playAudio(config.audios.click);
             }
         }
     }
@@ -91,48 +72,19 @@
         return Math.floor(Math.random() * maxExclusive);
     }
 
-    function playAudio(src, cacheable) {
+    function playAudio(src) {
         if (!src) {
             console.error("音频路径错误！");
-            return;
-        }
-        if (isPlayingAudio) {
-            console.warn("已经在播放音频！");
             return;
         }
         if (Array.isArray(src)) {
             src = src[randomRangeInt(src.length)];
         }
-
-        isPlayingAudio = true;
-
-        if (audioCache.has(src)) {
-            playSource(audioCache.get(src));
-        } else {
-            downloadBinary(src, function (data) {
-                context.decodeAudioData(data, function (buffer) {
-                    var source = context.createBufferSource();
-                    source.buffer = buffer;
-                    source.loop = false;
-                    source.connect(context.destination);
-                    playSource(source);
-
-                    if (cacheable) {
-                        audioCache.set(src, source);
-                    }
-                }, function (e) {
-                    console.error('Error decoding file', e);
-                });
-            }, function (status, responseText) {
-                console.error(`Couldn't load binary ${path}: status ${status}, ${responseText}.`);
-            });
-        }
-
-        function playSource(source) {
-            source.start(0); //立即播放
-            source.addEventListener("ended", function () {
-                isPlayingAudio = false;
-            });
+        if (src != audioPlayer.src) {
+            audioPlayer.pause();
+            audioPlayer.src = src;
+            audioPlayer.loop = false;
+            audioPlayer.play();
         }
     }
 
@@ -142,11 +94,30 @@
         var hour = Math.floor(delta / 1000 / 60 / 60);
         var minute = Math.floor(delta / 1000 / 60 - hour * 60);
 
-        if (minute >= arknights_live2d_config.maxIdleMinute) {
+        if (minute >= config.maxIdleMinute) {
             lastClickTime = time;
-            playAudio(arknights_live2d_config.audios.idle, true);
+            playAudio(config.audios.idle);
         }
     }
 
-    init();
+    (function init() {
+        initSpineWidgetElement();
+
+        downloadBinary(config.skeleton, function (data) {
+            var skeletonJson = new spine.SkeletonJsonConverter(data, 1);
+            skeletonJson.convertToJson();
+
+            new spine.SpineWidget(spineWidgetId, {
+                animation: config.animations.start,
+                skin: config.skin,
+                atlas: config.atlas,
+                jsonContent: skeletonJson.json,
+                backgroundColor: config.background,
+                loop: false, // 默认不循环，因为要先放开始动画
+                success: widgetLoadSuccess
+            });
+        }, function (status, responseText) {
+            console.error(`Couldn't load binary ${path}: status ${status}, ${responseText}.`);
+        });
+    })();
 })();
